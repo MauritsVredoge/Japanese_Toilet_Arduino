@@ -26,6 +26,10 @@ int lastVolume = currentVolume;
 bool isPlaying = false;
 bool isFadingOut = false;
 
+bool isProcessingPlayback = false;
+const unsigned long MOTION_COOLDOWN = 2000; // 2 seconds cooldown
+unsigned long lastMotionDetectionTime = 0;
+
 void setup() {
   pinMode(BUSY_PIN, INPUT);
   pinMode(PIR_PIN, INPUT);
@@ -62,19 +66,23 @@ void loop() {
   Serial.print(" | Busy: "); Serial.println(isPlayerBusy);
   
   // Motion detection logic
-  if (motionDetected) {
-    lastMotionTime = millis();
-    
-    if (!isPlaying) {
-      startPlayback();
-    }
-    
-    // Cancel any ongoing fade-out
-    if (isFadingOut) {
-      isFadingOut = false;
-      dfPlayer.volume(currentVolume);
-    }
+  if (motionDetected && !isProcessingPlayback && 
+    (millis() - lastMotionDetectionTime > MOTION_COOLDOWN)) {
+  lastMotionDetectionTime = millis();
+  lastMotionTime = millis();
+  
+  if (!isPlaying) {
+    isProcessingPlayback = true;
+    startPlayback();
+    isProcessingPlayback = false;
   }
+  
+  // Cancel any ongoing fade-out
+  if (isFadingOut) {
+    isFadingOut = false;
+    dfPlayer.volume(currentVolume);
+  }
+}
   
   // Handle playback state
   if (isPlaying) {
