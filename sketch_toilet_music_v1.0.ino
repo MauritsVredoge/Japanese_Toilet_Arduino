@@ -1,6 +1,5 @@
 #include <SoftwareSerial.h>
 #include <DFRobotDFPlayerMini.h>
-
 // Pins
 #define DFPLAYER_RX 10
 #define DFPLAYER_TX 11 
@@ -169,3 +168,68 @@ void handleVolumeControl(int s1, int s2, int key) {
     delay(200); // Debounce
   }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
