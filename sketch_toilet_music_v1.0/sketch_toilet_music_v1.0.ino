@@ -13,8 +13,8 @@ SoftwareSerial dfSerial(DFPLAYER_RX, DFPLAYER_TX);
 DFRobotDFPlayerMini dfPlayer;
 
 // Constants
-const unsigned long NO_MOTION_TIMEOUT = 30 * 1000UL; // 30 seconds
-const int FADE_DURATION = 1000; // 1 second fade
+const unsigned long NO_MOTION_TIMEOUT =  10 * 1000UL; // 60 seconds
+const int FADE_DURATION = 5000; // 5 second fade
 const int TOTAL_TRACKS = 21;
 
 // Variables
@@ -24,6 +24,8 @@ int currentVolume = 5;
 int lastVolume = currentVolume;
 bool isPlaying = false;
 bool isFadingOut = false;
+bool isFadingIn = false;
+unsigned fadeTargetVolume = 0;
 
 bool isProcessingPlayback = false;
 const unsigned long MOTION_COOLDOWN = 2000; // 2 seconds cooldown
@@ -63,6 +65,7 @@ void loop() {
   Serial.print("Motion: "); Serial.print(motionDetected);
   Serial.print(" | Playing: "); Serial.print(isPlaying);
   Serial.print(" | Busy: "); Serial.println(isPlayerBusy);
+  Serial.print(" | currentVolume: "); Serial.println()
   
   // Motion detection logic
   if (motionDetected && !isProcessingPlayback && 
@@ -78,61 +81,106 @@ void loop() {
   
   // Cancel any ongoing fade-out
   if (isFadingOut) {
+    currentVolume = dfPlayer.readVolume();
+    fadeTargetVolume = lastVolume;
     isFadingOut = false;
-    dfPlayer.volume(currentVolume);
+    isFadingIn = true;
+    fadeStartTime = millis();
+    // isFadingOut = false;
+    // dfPlayer.volume(currentVolume);
   }
 }
   
   // Handle playback state
   if (isPlaying) {
     // Check if we need to stop due to timeout
-    if (millis() - lastMotionTime > NO_MOTION_TIMEOUT && !isFadingOut) {
+    if (millis() - lastMotionTime > NO_MOTION_TIMEOUT && !isFadingOut && !isFadingIn) {
       startFadeOut();
     }
     
     // Play next track if current one finished
-    if (!isPlayerBusy && !isFadingOut) {
+    if (!isPlayerBusy && !isFadingOut && !isFadingIn) {
       playRandomTrack();
     }
   }
   
   // Handle fade-out
-  if (isFadingOut) {
+  if (isFadingOut || isFadingIn) {
     handleFade();
   }
   
-  delay(100);
+  delay(500);
 }
 
 void startPlayback() {
-  Serial.println("Starting playback");
+  Serial.println("Starting playback with fade");
   isPlaying = true;
-  currentVolume = lastVolume;
-  dfPlayer.volume(currentVolume);
+
+  dfPlayer.volume(0);
+  fadeTargetVolume = currentVolume;
+
+  isFadingIn = true;
+  fadeStartTime = millis();
+
+  // currentVolume = lastVolume;
+  // dfPlayer.volume(currentVolume);
   playRandomTrack();
 }
 
 void startFadeOut() {
-  Serial.println("Starting fade out");
+  // Serial.println("Starting fade out");
+  // isFadingOut = true;
+  // fadeStartTime = millis();
+
+  if(isFadingIn) {
+    fadeTargetVolume = currentVolume;
+    currentVolume = dfPlayer.readVolume();
+    isFadingIn = false;
+  }
+
+  Serial.println("Start fade out");
   isFadingOut = true;
   fadeStartTime = millis();
 }
 
 void handleFade() {
   unsigned long elapsed = millis() - fadeStartTime;
+  float progress = constrain((float)elapsed / FADE_DURATION, 0.0, 1.0);
   
-  if (elapsed >= FADE_DURATION) {
-    // Fade complete
-    isFadingOut = false;
-    isPlaying = false;
-    dfPlayer.pause();
-    Serial.println("Playback stopped");
-  } else {
-    // Calculate and set intermediate volume
-    float progress = (float)elapsed / FADE_DURATION;
-    int fadeVolume = currentVolume * (1.0 - progress);
-    dfPlayer.volume(fadeVolume);
+  if(isFadingIn) {
+    int currentFadeVolume = progress * fadeTargetVolume;
+    dfPlayer.volume(currentFadeVolume);
+
+    if(progress >= 1.0) {
+      isFadingIn = false;
+      dfPlayer.volume(fadeTargetVolume);
+      Serial.println("Fade comlete");
+    }
   }
+  else if (isFadingOut) {
+    int currentFadeVolume = (1.0 - progress) * currentVolume;
+    dfPlayer.volume(currentFadeVolume);
+
+    if(progress >= 1.0) {
+      isFadingOut = false;
+      isPlaying = false;
+      dfPlayer.pause();
+      Serial.println("Fade out complete playback stop");
+    }
+  }
+  
+  // if (elapsed >= FADE_DURATION) {
+  //   // Fade complete
+  //   isFadingOut = false;
+  //   isPlaying = false;
+  //   dfPlayer.pause();
+  //   Serial.println("Playback stopped");
+  // } else {
+  //   // Calculate and set intermediate volume
+  //   float progress = (float)elapsed / FADE_DURATION;
+  //   int fadeVolume = currentVolume * (1.0 - progress);
+  //   dfPlayer.volume(fadeVolume);
+  // }
 }
 
 void playRandomTrack() {
