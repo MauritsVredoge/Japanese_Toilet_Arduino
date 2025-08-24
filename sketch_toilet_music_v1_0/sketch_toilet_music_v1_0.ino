@@ -84,7 +84,7 @@ void loop() {
   checkAndSaveVolume();
   
   // Motion detection logic
-  if (motionDetected) {
+  if (motionDetected && currentVolume > 0) {
     lastMotionTime = millis();
     
     if (!isPlaying) {
@@ -206,32 +206,36 @@ void playRandomTrack() {
 void handleVolumeControl() {
   unsigned long currentTime = millis();
   
-  // Debounce check - only process rotary input after debounce delay
+  // Debounce check
   if (currentTime - lastRotaryTime < ROTARY_DEBOUNCE_DELAY) {
     return;
   }
   
   int rotaryValue1 = digitalRead(ROTARY_S1);
   int rotaryValue2 = digitalRead(ROTARY_S2);
-  bool keyValue = digitalRead(KEY) == LOW; // Assuming active low
+  bool keyValue = digitalRead(KEY) == LOW;
   
   bool volumeAdjusted = false;
   
-  if (rotaryValue2 == LOW) {
-    currentVolume = constrain(currentVolume - 1, 0, 30); // Decrease by 1 instead of 3
-    volumeAdjusted = true;
+  // Handle rotary rotation ONLY if not muted
+  if (currentVolume > 0) {
+    if (rotaryValue2 == LOW) {
+      currentVolume = constrain(currentVolume - 1, 0, 30);
+      volumeAdjusted = true;
+    }
+    if (rotaryValue1 == LOW) {
+      currentVolume = constrain(currentVolume + 1, 0, 30);
+      volumeAdjusted = true;
+    }
   }
   
-  if (rotaryValue1 == LOW) {
-    currentVolume = constrain(currentVolume + 1, 0, 30); // Increase by 1 instead of 3
-    volumeAdjusted = true;
-  }
-  
-  // Mute toggle
+  // Handle button press Mute Toggle
   if (keyValue) {
     if (currentVolume == 0) {
+      // Unmute: restore last volume
       currentVolume = lastVolume;
     } else {
+      // Mute: remember current volume and set to 0
       lastVolume = currentVolume;
       currentVolume = 0;
     }
@@ -241,8 +245,8 @@ void handleVolumeControl() {
   if (volumeAdjusted) {
     dfPlayer.volume(currentVolume);
     volumeChanged = true;
-    lastRotaryTime = currentTime; // Reset debounce timer
-    // Serial.print("Volume changed: "); Serial.println(currentVolume);
-    delay(20); // Short delay for stability
+    lastRotaryTime = currentTime;
+    Serial.print("Volume changed: "); Serial.println(currentVolume);
+    delay(20);
   }
 }
