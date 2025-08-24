@@ -1,5 +1,6 @@
 #include <SoftwareSerial.h>
 #include <DFRobotDFPlayerMini.h>
+#include <EEPROM.h>
 
 // Pins
 #define DFPLAYER_RX 10
@@ -10,32 +11,48 @@
 #define ROTARY_S2 4
 #define KEY 3
 
+// EEPROM addresses
+#define VOLUME_ADDR 0
+#define LAST_VOLUME_ADDR 1
+#define LAST_SAVE_TIME_ADDR 2 // Address for storing last save time in memory
+
+// Constants
+const unsigned long NO_MOTION_TIMEOUT = 60 * 1000UL; // 60 seconds long no motion
+const int FADE_DURATION = 1000; // 1 second fade
+const int TOTAL_TRACKS = 35;
+const unsigned long SAVE_INTERVAL = 6 * 60 * 60 * 1000UL; // 6 hours
+const unsigned long ROTARY_DEBOUNCE_DELAY = 50; // 50ms debounce for rotary encoder
+
 // DFRobot object
 SoftwareSerial dfSerial(DFPLAYER_RX, DFPLAYER_TX);
 DFRobotDFPlayerMini dfPlayer;
 
-// Constants
-const unsigned long NO_MOTION_TIMEOUT = 60 * 1000UL; // 30 seconds
-const int FADE_DURATION = 1000; // 1 second fade
-const int TOTAL_TRACKS = 35;
-
 // Variables
 unsigned long lastMotionTime = 0;
 unsigned long fadeStartTime = 0;
+unsigned long lastSaveTime = 0;
+unsigned long lastRotaryTime = 0; // For rotary encoder debouncing
 int currentVolume = 15;
 int lastVolume = currentVolume;
 bool isPlaying = false;
 bool isFadingOut = false;
+bool volumeChanged = false;
 
 void setup() {
-
   // Setup up the motion sensor and dfplayer pins
   pinMode(BUSY_PIN, INPUT);
   pinMode(PIR_PIN, INPUT);
+  pinMode(ROTARY_S1, INPUT_PULLUP);
+  pinMode(ROTARY_S2, INPUT_PULLUP);
+  pinMode(KEY, INPUT_PULLUP);
 
   // Start debugging serial
   Serial.begin(9600);
   dfSerial.begin(9600);
+
+  // Load saved volume from EEPROM
+  loadVolumeSettings();
+  loadLastSaveTime();
 
   // Seed random number generator for selecting random tracks
   randomSeed(analogRead(0)); 
@@ -43,6 +60,9 @@ void setup() {
   // Debounce
   delay(1000);
   Serial.println("Starting up.");
+  Serial.print("Loaded volume: "); Serial.println(currentVolume);
+  Serial.print("Loaded last volume: "); Serial.println(lastVolume);
+  Serial.print("Last save time: "); Serial.println(lastSaveTime);
 
   if(!dfPlayer.begin(dfSerial)) {
     Serial.println("DFPlayer initialization failed");
@@ -55,19 +75,13 @@ void setup() {
 void loop() {
   // Read inputs
   bool motionDetected = digitalRead(PIR_PIN) == HIGH;
-  bool isPlayerBusy = digitalRead(BUSY_PIN) == LOW; // Typically LOW when playing
-  int rotaryValue1 = digitalRead(ROTARY_S1);
-  int rotaryValue2 = digitalRead(ROTARY_S2);
-  bool keyValue = digitalRead(KEY);
+  bool isPlayerBusy = digitalRead(BUSY_PIN) == LOW;
   
-  // Handle volume changes
-  handleVolumeControl(rotaryValue1, rotaryValue2, keyValue);
+  // Handle volume changes with debouncing
+  handleVolumeControl();
   
-  // Debug output
-  // Serial.print("Motion: "); Serial.print(motionDetected);
-  // Serial.print(" | Playing: "); Serial.print(isPlaying);
-  // Serial.print(" | Busy: "); Serial.print(isPlayerBusy);
-  // Serial.print(" | Volume: "); Serial.println(currentVolume);
+  // Check if we should save to EEPROM (every 6 hours or on significant events)
+  checkAndSaveVolume();
   
   // Motion detection logic
   if (motionDetected) {
@@ -102,19 +116,68 @@ void loop() {
     handleFade();
   }
   
-  delay(100);
+  delay(10); // Shorter delay for more responsive debouncing
+}
+
+void loadVolumeSettings() {
+  int savedVolume = EEPROM.read(VOLUME_ADDR);
+  int savedLastVolume = EEPROM.read(LAST_VOLUME_ADDR);
+  
+  if (savedVolume >= 0 && savedVolume <= 30) {
+    currentVolume = savedVolume;
+  }
+  
+  if (savedLastVolume >= 0 && savedLastVolume <= 30) {
+    lastVolume = savedLastVolume;
+  }
+}
+
+void loadLastSaveTime() {
+  // Read 4 bytes for the unsigned long
+  lastSaveTime = 0;
+  for (int i = 0; i < 4; i++) {
+    byte part = EEPROM.read(LAST_SAVE_TIME_ADDR + i);
+    lastSaveTime = (lastSaveTime << 8) | part;
+  }
+}
+
+void saveVolumeSettings() {
+  EEPROM.write(VOLUME_ADDR, currentVolume);
+  EEPROM.write(LAST_VOLUME_ADDR, lastVolume);
+  
+  unsigned long currentTime = millis();
+  for (int i = 0; i < 4; i++) {
+    EEPROM.write(LAST_SAVE_TIME_ADDR + i, (currentTime >> (8 * (3 - i))) & 0xFF);
+  }
+  lastSaveTime = currentTime;
+  
+  volumeChanged = false;
+  Serial.print("Volume saved to EEPROM: "); Serial.println(currentVolume);
+}
+
+void checkAndSaveVolume() {
+  if (volumeChanged) {
+    unsigned long currentTime = millis();
+    
+    // Handle millis() overflow because at some point the timer will exceed max int
+    // ongeveer elke 49 dagen.
+    if (currentTime < lastSaveTime) {
+      // Overflow occurred, force save
+      saveVolumeSettings();
+      Serial.println("Millis overflow detected, forced save");
+    } else if (currentTime - lastSaveTime >= SAVE_INTERVAL) {
+      // 6 hours have passed, save to EEPROM
+      saveVolumeSettings();
+    }
+  }
 }
 
 void startPlayback() {
-  //Serial.println("Starting playback");
   isPlaying = true;
   playRandomTrack();
 }
 
-// This one is important to do in code because if a track finishes playing before the chunk length
-// it has to fade otherwise it will sound awkward. 
 void startFadeOut() {
-  //Serial.println("Starting fade out");
   isFadingOut = true;
   fadeStartTime = millis();
 }
@@ -127,7 +190,6 @@ void handleFade() {
     isFadingOut = false;
     isPlaying = false;
     dfPlayer.pause();
-    //Serial.println("Playback stopped");
   } else {
     // Calculate and set intermediate volume
     float progress = (float)elapsed / FADE_DURATION;
@@ -138,34 +200,49 @@ void handleFade() {
 
 void playRandomTrack() {
   int trackNumber = random(1, TOTAL_TRACKS + 1);
-  //Serial.print("Playing track: "); Serial.println(trackNumber);
   dfPlayer.play(trackNumber);
 }
 
-void handleVolumeControl(int s1, int s2, int key) {
-  // Volume down
-  if (s2 == 0) {
-    currentVolume = constrain(currentVolume - 3, 0, 30);
-    dfPlayer.volume(currentVolume);
-    delay(200); // Debounce
+void handleVolumeControl() {
+  unsigned long currentTime = millis();
+  
+  // Debounce check - only process rotary input after debounce delay
+  if (currentTime - lastRotaryTime < ROTARY_DEBOUNCE_DELAY) {
+    return;
   }
   
-  // Volume up
-  if (s1 == 0) {
-    currentVolume = constrain(currentVolume + 3, 0, 30);
-    dfPlayer.volume(currentVolume);
-    delay(200); // Debounce
+  int rotaryValue1 = digitalRead(ROTARY_S1);
+  int rotaryValue2 = digitalRead(ROTARY_S2);
+  bool keyValue = digitalRead(KEY) == LOW; // Assuming active low
+  
+  bool volumeAdjusted = false;
+  
+  if (rotaryValue2 == LOW) {
+    currentVolume = constrain(currentVolume - 1, 0, 30); // Decrease by 1 instead of 3
+    volumeAdjusted = true;
+  }
+  
+  if (rotaryValue1 == LOW) {
+    currentVolume = constrain(currentVolume + 1, 0, 30); // Increase by 1 instead of 3
+    volumeAdjusted = true;
   }
   
   // Mute toggle
-  if (key == 0) {
+  if (keyValue) {
     if (currentVolume == 0) {
       currentVolume = lastVolume;
     } else {
       lastVolume = currentVolume;
       currentVolume = 0;
     }
+    volumeAdjusted = true;
+  }
+  
+  if (volumeAdjusted) {
     dfPlayer.volume(currentVolume);
-    delay(200); // Debounce
+    volumeChanged = true;
+    lastRotaryTime = currentTime; // Reset debounce timer
+    // Serial.print("Volume changed: "); Serial.println(currentVolume);
+    delay(20); // Short delay for stability
   }
 }
