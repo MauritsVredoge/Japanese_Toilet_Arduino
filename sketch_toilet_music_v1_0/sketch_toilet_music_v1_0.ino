@@ -190,6 +190,9 @@ void handleFade() {
     isFadingOut = false;
     isPlaying = false;
     dfPlayer.pause();
+    // Reset the volume after fading to 0 and pausing.
+    dfPlayer.volume(currentVolume);
+    Serial.println("Fade complete. Volume reset.");
   } else {
     // Calculate and set intermediate volume
     float progress = (float)elapsed / FADE_DURATION;
