@@ -10,6 +10,7 @@
 #define ROTARY_S2 4
 #define KEY 3
 
+// DFRobot object
 SoftwareSerial dfSerial(DFPLAYER_RX, DFPLAYER_TX);
 DFRobotDFPlayerMini dfPlayer;
 
@@ -27,13 +28,19 @@ bool isPlaying = false;
 bool isFadingOut = false;
 
 void setup() {
+
+  // Setup up the motion sensor and dfplayer pins
   pinMode(BUSY_PIN, INPUT);
   pinMode(PIR_PIN, INPUT);
+
+  // Start debugging serial
   Serial.begin(9600);
   dfSerial.begin(9600);
 
-  randomSeed(analogRead(0)); // Seed random number generator
+  // Seed random number generator for selecting random tracks
+  randomSeed(analogRead(0)); 
   
+  // Debounce
   delay(1000);
   Serial.println("Starting up.");
 
@@ -59,7 +66,8 @@ void loop() {
   // Debug output
   // Serial.print("Motion: "); Serial.print(motionDetected);
   // Serial.print(" | Playing: "); Serial.print(isPlaying);
-  // Serial.print(" | Busy: "); Serial.println(isPlayerBusy);
+  // Serial.print(" | Busy: "); Serial.print(isPlayerBusy);
+  // Serial.print(" | Volume: "); Serial.println(currentVolume);
   
   // Motion detection logic
   if (motionDetected) {
@@ -100,11 +108,11 @@ void loop() {
 void startPlayback() {
   //Serial.println("Starting playback");
   isPlaying = true;
-  currentVolume = lastVolume;
-  dfPlayer.volume(currentVolume);
   playRandomTrack();
 }
 
+// This one is important to do in code because if a track finishes playing before the chunk length
+// it has to fade otherwise it will sound awkward. 
 void startFadeOut() {
   //Serial.println("Starting fade out");
   isFadingOut = true;
