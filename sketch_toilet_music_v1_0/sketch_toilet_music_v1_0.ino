@@ -59,10 +59,10 @@ void setup() {
   
   // Debounce
   delay(1000);
-  Serial.println("Starting up.");
-  Serial.print("Loaded volume: "); Serial.println(currentVolume);
-  Serial.print("Loaded last volume: "); Serial.println(lastVolume);
-  Serial.print("Last save time: "); Serial.println(lastSaveTime);
+  // Serial.println("Starting up.");
+  // Serial.print("Loaded volume: "); Serial.println(currentVolume);
+  // Serial.print("Loaded last volume: "); Serial.println(lastVolume);
+  // Serial.print("Last save time: "); Serial.println(lastSaveTime);
 
   if(!dfPlayer.begin(dfSerial)) {
     Serial.println("DFPlayer initialization failed");
@@ -223,11 +223,11 @@ void handleVolumeControl() {
   // Handle rotary rotation ONLY if not muted
   if (currentVolume > 0) {
     if (rotaryValue2 == LOW) {
-      currentVolume = constrain(currentVolume - 1, 0, 30);
+      currentVolume = constrain(currentVolume - 1, 1, 30);
       volumeAdjusted = true;
     }
     if (rotaryValue1 == LOW) {
-      currentVolume = constrain(currentVolume + 1, 0, 30);
+      currentVolume = constrain(currentVolume + 1, 1, 30);
       volumeAdjusted = true;
     }
   }

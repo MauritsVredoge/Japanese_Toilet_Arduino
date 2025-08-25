@@ -1,0 +1,5 @@
+ls
+source py_venv/bin/activate
+cd Downloads
+ls
+python3 cut_mp3.py
